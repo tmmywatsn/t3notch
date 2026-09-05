@@ -17,6 +17,9 @@ jobs:
       fail-fast: false
       matrix:
         # The oldest macOS the app supports, and the newest the runners offer.
+        # Both job names are required status checks on main — renaming this job
+        # or changing these values will block merges until the branch protection
+        # rule is updated to match.
         os: [macos-14, macos-latest]
     steps:
       - uses: actions/checkout@v4

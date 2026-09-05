@@ -140,8 +140,10 @@ build script works around it; `sudo ./Scripts/fix-toolchain.sh` removes it prope
 
 ## Contributing
 
-Issues and pull requests welcome. CI builds and tests on macOS 14 and latest — please keep both
-green, and add an assertion to `Tests/main.swift` for anything with logic in it.
+Issues and pull requests welcome.
+
+`main` is protected: CI must be green on both macOS 14 and latest before a pull request can merge,
+and history stays linear. Add an assertion to `Tests/main.swift` for anything with logic in it.
 
 ## Licence
 
