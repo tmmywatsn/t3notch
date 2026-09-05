@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build and test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # The oldest macOS the app supports, and the newest the runners offer.
+        os: [macos-14, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build
+        run: ./Scripts/build-app.sh
+
+      - name: Test
+        run: ./Scripts/test.sh
+
+      - name: Check the bundle
+        run: |
+          APP="build/T3 Notch.app"
+          test -x "$APP/Contents/MacOS/T3Notch"
+          plutil -lint "$APP/Contents/Info.plist"
+          codesign --verify --verbose "$APP"
+
+      - name: Exercise the fixture database
+        run: |
+          ./Scripts/fixture.sh setup
+          ./Scripts/fixture.sh seed
+          ./Scripts/fixture.sh run
+          ./Scripts/fixture.sh ask
+          ./Scripts/fixture.sh finish
+          ./Scripts/fixture.sh fail
