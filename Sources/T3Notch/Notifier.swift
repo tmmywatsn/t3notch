@@ -27,7 +27,8 @@ final class Notifier {
               Bundle.main.bundleIdentifier != nil else { return }
         UNUserNotificationCenter.current()
             .requestAuthorization(options: [.alert, .sound]) { [weak self] granted, _ in
-                Task { @MainActor in self?.centerAuthorized = granted }
+                guard let self else { return }
+                Task { @MainActor in self.centerAuthorized = granted }
             }
     }
 

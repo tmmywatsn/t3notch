@@ -95,7 +95,8 @@ final class NotchController: ObservableObject {
         applyFrame(animated: false)
 
         hoverTimer = Timer.scheduledTimer(withTimeInterval: 0.06, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.pollCursor() }
+            guard let self else { return }
+            Task { @MainActor in self.pollCursor() }
         }
 
         screenObserver = NotificationCenter.default.addObserver(
@@ -103,7 +104,8 @@ final class NotchController: ObservableObject {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            Task { @MainActor in self?.screensChanged() }
+            guard let self else { return }
+            Task { @MainActor in self.screensChanged() }
         }
     }
 
@@ -170,8 +172,9 @@ final class NotchController: ObservableObject {
         setMode(.toast)
         toastDismissal?.invalidate()
         toastDismissal = Timer.scheduledTimer(withTimeInterval: duration, repeats: false) { [weak self] _ in
+            guard let self else { return }
             Task { @MainActor in
-                guard let self, self.mode == .toast else { return }
+                guard self.mode == .toast else { return }
                 self.toast = nil
                 self.setMode(.collapsed)
             }
