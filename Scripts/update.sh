@@ -2,9 +2,20 @@
 # Updates an installed T3 Notch to the latest commit on main: pull, rebuild,
 # test, and swap the copy in /Applications while the app is closed.
 #
+#   update.sh           pull and reinstall if anything is out of date
+#   update.sh --force   rebuild and reinstall regardless
+#
 # Safe to re-run. It refuses rather than guesses whenever the clone is not in a
 # state it can fast-forward.
 set -euo pipefail
+
+FORCE=0
+if [ "${1:-}" = "--force" ]; then
+  FORCE=1
+elif [ -n "${1:-}" ]; then
+  echo "usage: update.sh [--force]" >&2
+  exit 2
+fi
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 INSTALLED="/Applications/T3 Notch.app"
@@ -31,8 +42,20 @@ echo "==> pulling"
 git pull --ff-only
 
 after="$(git rev-parse --short HEAD)"
-if [ "$before" = "$after" ] && [ -d "$INSTALLED" ]; then
-  echo "Already up to date ($(tr -d ' \t\n' < "$ROOT/VERSION"), $after)."
+WANT="$(tr -d ' \t\n' < "$ROOT/VERSION")"
+
+# A no-op pull is not enough to skip the rebuild: the clone can already be
+# current while /Applications is still on an older build, which is exactly what
+# happens to anyone who pulled by hand before running this. Compare what is
+# installed as well, so "already up to date" always means the app is too.
+INSTALLED_VERSION=""
+if [ -d "$INSTALLED" ]; then
+  INSTALLED_VERSION="$(plutil -extract CFBundleShortVersionString raw \
+    "$INSTALLED/Contents/Info.plist" 2>/dev/null || true)"
+fi
+
+if [ "$FORCE" = "0" ] && [ "$before" = "$after" ] && [ "$INSTALLED_VERSION" = "$WANT" ]; then
+  echo "Already up to date ($WANT, $after)."
   exit 0
 fi
 
@@ -66,4 +89,8 @@ if [ "$was_running" = "1" ]; then
   open "$INSTALLED"
 fi
 
-echo "Updated $before -> $after."
+if [ "$before" = "$after" ]; then
+  echo "Reinstalled $WANT ($after)."
+else
+  echo "Updated $before -> $after ($WANT)."
+fi
