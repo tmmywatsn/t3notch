@@ -118,6 +118,8 @@ final class Settings: ObservableObject {
     @Published var systemNotifications: Bool { didSet { persist(systemNotifications, "systemNotifications") } }
     /// Housekeeping turns finish in well under a second; off, they stay quiet.
     @Published var announceShortRuns: Bool { didSet { persist(announceShortRuns, "announceShortRuns") } }
+    /// The app's only network access. Off, nothing is ever requested.
+    @Published var checkForUpdates: Bool { didSet { persist(checkForUpdates, "checkForUpdates") } }
 
     private init() {
         let stored = UserDefaults.standard
@@ -129,6 +131,7 @@ final class Settings: ObservableObject {
         // Off by default: an ad-hoc signed build is never granted authorization.
         systemNotifications = read("systemNotifications", default: false)
         announceShortRuns = read("announceShortRuns", default: false)
+        checkForUpdates = read("checkForUpdates", default: true)
     }
 
     private func persist(_ value: Bool, _ key: String) {

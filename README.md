@@ -66,12 +66,29 @@ open "/Applications/T3 Notch.app"
 Launch it from `/Applications` rather than `build/`, which is rebuilt in place. To start it
 automatically, add it under **System Settings → General → Login Items → Open at Login**.
 
-> [!NOTE]
-> Releases are source-only. Builds here are ad-hoc signed, so a downloaded `.app` would be
-> quarantined by Gatekeeper.
-
 On a Mac without a physical notch it uses a 190pt region in the middle of the menu bar instead;
 everything else behaves the same.
+
+> [!NOTE]
+> [Releases](https://github.com/tmmywatsn/t3notch/releases) are source-only. Builds are ad-hoc
+> signed, so a downloadable `.app` would arrive quarantined and need its attributes stripped by
+> hand — worse advice than a rebuild.
+
+## Updating
+
+From your clone:
+
+```sh
+./Scripts/update.sh
+```
+
+It pulls, runs the tests, rebuilds, then quits and replaces the copy in `/Applications`, relaunching
+it if it was running. It stops without touching anything if you have uncommitted changes or the
+branch has diverged.
+
+The app checks once a day whether a newer version is tagged and puts a dot on the settings cog when
+there is one. Turn it off under **Check for updates**; see [Privacy](#privacy) for exactly what that
+request contains.
 
 ## Settings
 
@@ -86,6 +103,7 @@ The cog at the bottom right of the open panel.
 | Banner in the notch | On | The drop-down summary when a run finishes |
 | Play a sound | On | A chime on finish, a thud on failure, a ping when you're asked something |
 | Announce short runs | Off | Whether turns under three seconds count as a run |
+| Check for updates | On | A daily look at the releases page — the app's only network access |
 
 Two more — Notification Centre banners and Start at login — appear only on a build signed with a
 Developer ID, since macOS refuses both to ad-hoc signed apps.
@@ -109,9 +127,15 @@ the thread status vocabulary, and why clicking through to a specific thread isn'
 - Reads `~/.t3/userdata/state.sqlite` **read-only**, `stat()`s the WAL beside it, and reads
   `settings.json` for your provider accent colours. Nothing else — never `clerk-tokens.json` or
   `secrets/`.
-- Writes four booleans to `UserDefaults` and keeps no other state.
-- **No networking code and no telemetry.** The only dependencies are Apple frameworks and
-  `libsqlite3`.
+- Writes five booleans and the last update-check time to `UserDefaults`, and keeps no other state.
+- **Makes exactly one kind of request, and only with Check for updates on:** an unauthenticated
+  `GET` to `api.github.com/repos/tmmywatsn/t3notch/releases/latest`, at most once a day. It carries
+  no identifier beyond `T3Notch/<version>` in the `User-Agent`, uses an ephemeral session so nothing
+  is cached to disk, and reads only the tag name. Switch the setting off and no request is ever
+  made.
+- **No telemetry, no analytics, no crash reporting.** Nothing about you or your threads leaves the
+  machine, ever. The only dependencies are Apple frameworks and `libsqlite3`; it is one file,
+  [`UpdateCheck.swift`](Sources/T3Notch/UpdateCheck.swift), and roughly 40 lines of it.
 
 ## Development
 
@@ -144,6 +168,16 @@ Issues and pull requests welcome.
 
 `main` is protected: CI must be green on both macOS 14 and latest before a pull request can merge,
 and history stays linear. Add an assertion to `Tests/main.swift` for anything with logic in it.
+
+Releases are cut from the `VERSION` file, which is the single source of truth for the version the
+app reports. Bump it in a pull request, then tag the merge commit:
+
+```sh
+git tag v1.1.0 && git push origin v1.1.0
+```
+
+`release.yml` refuses to publish if the tag and `VERSION` disagree, then builds, tests and writes
+the notes from the commits since the previous tag.
 
 ## Licence
 

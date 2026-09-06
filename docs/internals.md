@@ -105,6 +105,39 @@ The panel is an `NSPanel` above the menu bar, on every Space. Two things are wor
 `NSHostingView.sizingOptions` is set to `[]`. Left alone it constrains the window to the SwiftUI
 content's ideal size, which fights the frames the controller sets.
 
+## Releases and updating
+
+`VERSION` at the repo root is the single source of truth. `build-app.sh` reads it, so a source
+tarball with no git history still stamps the bundle correctly, and `release.yml` refuses to publish
+a tag that disagrees with it. A build that is not sitting exactly on its release tag, or that has a
+dirty tree, gets a `1.0.0+abc1234` build identifier in `T3NotchBuild` — display only, since
+`CFBundleShortVersionString` has to stay a plain dotted number.
+
+### Why releases carry no binary
+
+Gatekeeper. `build-app.sh` signs ad-hoc, which is enough to run locally but not enough to survive a
+download: the quarantine attribute on a fetched `.app` with no Developer ID gets it reported as
+damaged, and the workaround is teaching every user `xattr -dr com.apple.quarantine`, which is a bad
+habit to hand out. So a release is a tag plus notes, and updating means rebuilding from it.
+
+Changing that needs an Apple Developer Program membership: sign with a Developer ID Application
+certificate, `notarytool submit --wait`, then `stapler staple`. With notarised builds the natural
+next step is [Sparkle](https://sparkle-project.org) and a signed appcast, at which point the check
+in `UpdateCheck.swift` would be replaced rather than extended. Nothing here is designed to prevent
+that; the version comparison stays useful either way.
+
+### The update check
+
+One unauthenticated `GET` to `/repos/tmmywatsn/t3notch/releases/latest`, at most once a day, gated
+on `Settings.checkForUpdates`. The timer ticks hourly and the interval is enforced against a
+timestamp in `UserDefaults`, so a Mac asleep through its slot checks shortly after waking rather
+than skipping a day. `/releases/latest` already excludes drafts and pre-releases; the flags are
+honoured anyway in case that changes. Parsing is split into a `nonisolated static` function purely
+so the tests can drive it without a network.
+
+Unauthenticated GitHub API calls are limited to 60 an hour per IP address. One a day per user is
+nowhere near it, and a 403 is treated the same as any other non-200: no update, try tomorrow.
+
 ## Known limitations
 
 - The project builds in Swift 5 language mode. `T3Reader` is a plain class handed between the main
@@ -135,6 +168,7 @@ Sources/T3Notch/
   AppDelegate.swift     Wiring and the menu bar item
   Debug.swift           Stderr diagnostics behind T3NOTCH_DEBUG
   Notifier.swift        Store events -> banner, sound, Notification Centre; Settings
+  UpdateCheck.swift     Version comparison and the daily release check
   Model/
     SQLite.swift        Minimal read-only sqlite3 wrapper
     T3Database.swift    Queries against T3 Code's projections
