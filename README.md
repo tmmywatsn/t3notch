@@ -112,7 +112,9 @@ Developer ID, since macOS refuses both to ad-hoc signed apps.
 
 T3 Code's HTTP API needs a paired credential, so instead of polling it the app tails the state T3
 Code already writes to disk: a `stat()` on the SQLite database and its WAL four times a second, then
-read-only queries against the projection tables when something has changed.
+read-only queries against the projection tables and session lifecycle events when something has
+changed. Background tasks keep their parent chat active after the main turn settles; a three-second
+grace period prevents brief subagent handoffs from triggering completion.
 
 > [!IMPORTANT]
 > Those tables are T3 Code's private storage, not a published API, so an upstream change could
@@ -140,7 +142,7 @@ the thread status vocabulary, and why clicking through to a specific thread isn'
 ## Development
 
 ```sh
-./Scripts/test.sh        # pure-logic assertions
+./Scripts/test.sh        # logic and SQLite/store regression tests
 ./Scripts/build-app.sh   # builds build/T3 Notch.app
 ```
 
@@ -164,7 +166,9 @@ build script works around it; `sudo ./Scripts/fix-toolchain.sh` removes it prope
 
 ## Contributing
 
-Issues and pull requests welcome.
+Issues and pull requests welcome. Start with [Contributing](CONTRIBUTING.md) for setup, code
+conventions and validation. Please follow the [code of conduct](CODE_OF_CONDUCT.md), and use the
+[security policy](SECURITY.md) to report vulnerabilities privately.
 
 `main` is protected: CI must be green on both macOS 14 and latest before a pull request can merge,
 and history stays linear. Add an assertion to `Tests/main.swift` for anything with logic in it.

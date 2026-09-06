@@ -41,8 +41,8 @@ struct PlanStep {
 final class T3Database {
     private let connection: SQLiteConnection
 
-    init() throws {
-        connection = try SQLiteConnection(path: T3Paths.database.path)
+    init(path: String = T3Paths.database.path) throws {
+        connection = try SQLiteConnection(path: path)
     }
 
     func close() { connection.close() }
@@ -118,6 +118,32 @@ final class T3Database {
     }
 
     // MARK: - Activity
+
+    /// Read the lifecycle separately from the short UI feed: a long-running
+    /// child must not disappear just because 40 newer tool calls arrived.
+    /// Only a stopped session clears its children. A failed/interrupted turn
+    /// can recover in the same session while its background tasks keep running.
+    func hasBackgroundWork(threadID: String) throws -> Bool {
+        var tasks = BackgroundTasks()
+        try connection.query(
+            """
+            SELECT kind, payload_json FROM projection_thread_activities
+            WHERE thread_id = ? AND kind IN ('task.started', 'task.updated', 'task.progress', 'task.completed')
+              AND created_at > COALESCE((
+                SELECT MAX(occurred_at) FROM orchestration_events
+                WHERE aggregate_kind = 'thread' AND stream_id = ?
+                  AND event_type = 'thread.session-set'
+                  AND json_valid(payload_json)
+                  AND json_extract(payload_json, '$.session.status') = 'stopped'
+              ), '')
+            ORDER BY created_at, sequence, rowid
+            """,
+            bind: [.text(threadID), .text(threadID)]
+        ) { row in
+            tasks.record(kind: row.text(0), payload: row.json(1))
+        }
+        return tasks.hasWork
+    }
 
     func activity(threadID: String, limit: Int = 40) throws -> [ActivityLine] {
         var lines: [ActivityLine] = []

@@ -11,8 +11,9 @@ The app tails T3 Code's own on-disk state:
    when T3 Code commits something, so this is nearly free.
 2. On a change, read-only SQLite queries against `projection_threads`, `projection_thread_sessions`,
    `projection_turns`, `projection_thread_activities`, `projection_pending_approvals` and
-   `projection_projects`.
-3. A run has finished when its session goes from `running` to anything else.
+   `projection_projects`, plus session boundaries in `orchestration_events`.
+3. A run finishes after its session, turn and background tasks have stopped working for three
+   seconds. The same grace period keeps its working row visible during subagent handoffs.
 
 The connection is opened `mode=ro` with `SQLITE_OPEN_READONLY`, on a background queue.
 
@@ -73,7 +74,18 @@ Everything available per thread:
 | checkpoints | per-turn changed files with `additions` / `deletions` |
 
 `backgroundLiveness` and `planProgress` are computed by the server and appear only on the HTTP API,
-not in the SQLite projections.
+not in the SQLite projections. The notch reconstructs background work from persisted `task.started`,
+`task.updated`, `task.progress` and `task.completed` activities. It reads the lifecycle before
+ranking threads and separately from the 40-entry UI feed, so a child remains visible across turns
+and long tool histories. Idle, cancelled and finished tasks stop counting; status-less progress
+cannot revive them. Plan/dream bookkeeping and nested monitor activity follow T3 Code's exclusions.
+
+Session stop events provide a cutoff for discarding orphaned tasks. A recoverable main-turn failure
+does not clear surviving children; their lifecycle is still available after a retry. This remains
+an inference from persisted events: missing lifecycle events cannot be recovered from the server's
+in-memory registry without using its API. The three-second handoff grace bridges brief gaps between
+session and task writes. The store's one-second timer resolves the grace even if no more database
+writes arrive; failures and interruptions bypass it.
 
 ## Opening a specific thread
 
@@ -143,8 +155,9 @@ nowhere near it, and a 403 is treated the same as any other non-200: no update, 
 - The project builds in Swift 5 language mode. `T3Reader` is a plain class handed between the main
   actor and its own queue, and the value types it returns are not marked `Sendable`, so adopting
   Swift 6 strict concurrency will need work.
-- Coverage is limited to the pure logic in `Tests/main.swift` (run with `Scripts/test.sh`); the UI
-  and the SQLite reads are exercised by hand through `Scripts/fixture.sh`.
+- `Tests/main.swift` (run with `Scripts/test.sh`) covers pure logic and the SQLite → reader → store
+  handoff path using a temporary fixture database and a controlled clock. The UI is exercised by
+  hand through `Scripts/fixture.sh`.
 
 ## Toolchain
 
@@ -162,7 +175,7 @@ filesystem overlay; `sudo ./Scripts/fix-toolchain.sh` moves the stale file aside
 ## Layout
 
 ```
-Tests/main.swift        Pure-logic assertions, run by Scripts/test.sh
+Tests/main.swift        Logic and SQLite/store regression tests, run by Scripts/test.sh
 Sources/T3Notch/
   main.swift            Entry point; accessory app, no Dock icon
   AppDelegate.swift     Wiring and the menu bar item
@@ -175,6 +188,7 @@ Sources/T3Notch/
     T3Reader.swift      Background queue owning the connection
     T3Store.swift       WAL watching, run/finish detection, published state
     Models.swift        AgentRun, ThreadPhase, ActivityLine, ContextWindow
+    BackgroundTasks.swift Task lifecycle folding for work that outlives a turn
   UI/
     NotchGeometry.swift Finds the cutout, or fakes one
     NotchShape.swift    Panel outline, flaring into the menu bar

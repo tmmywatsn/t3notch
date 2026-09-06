@@ -27,9 +27,8 @@ enum ActivityTone: String {
 
 /// How a thread reads at a glance.
 ///
-/// This mirrors `resolveThreadAwarenessPhase` in T3 Code's server, including its
-/// precedence order, so the notch classifies a thread exactly the way T3 Code
-/// classifies it for its own remote notifications.
+/// Uses T3 Code's attention/error precedence, with background work and a brief
+/// handoff grace period keeping otherwise settled threads in the working view.
 enum ThreadPhase {
     case waitingForApproval
     case waitingForInput
@@ -100,6 +99,10 @@ struct AgentRun: Identifiable, Equatable {
     var hasActionablePlan: Bool
     var updatedAt: Date
 
+    var hasBackgroundWork = false
+    /// Briefly retain the working row while handoff events catch up.
+    var isInHandoff = false
+
     // Filled in only for the threads the notch actually displays.
     var recentActivity: [ActivityLine] = []
     var context: ContextWindow?
@@ -111,7 +114,7 @@ struct AgentRun: Identifiable, Equatable {
         if pendingQuestions > 0 { return .waitingForInput }
         if status.isFaulted || turnState == "error" { return .failed }
         if status == .starting { return .starting }
-        if status == .running || turnState == "running" { return .running }
+        if hasOngoingWork || isInHandoff { return .running }
         if turnState == "completed" { return .completed }
         return .stale
     }
@@ -119,7 +122,20 @@ struct AgentRun: Identifiable, Equatable {
     /// A proposed plan only counts as blocking once the agent has stopped and is
     /// waiting on it; while it is still working, the live view is more useful.
     var needsAttention: Bool {
-        phase.wantsYou || (hasActionablePlan && !status.isBusy)
+        phase.wantsYou || (hasActionablePlan && !hasOngoingWork)
+    }
+
+    /// Independent of attention precedence: waiting for approval doesn't end a run.
+    var hasOngoingWork: Bool {
+        guard !isStoppedOrFailed else { return false }
+        return status.isBusy || turnState == "running" || turnState == "pending" || hasBackgroundWork
+    }
+
+    /// Stop/failure signals end transition tracking even when attention flags
+    /// linger. A completed main turn, in contrast, can still have live children.
+    var isStoppedOrFailed: Bool {
+        status.isFaulted || status == .stopped || status == .interrupted
+            || turnState == "error" || turnState == "interrupted"
     }
 
     /// Stable ordering key: when this thread's current run began.

@@ -69,18 +69,21 @@ final class T3Reader {
 
     // MARK: - Reads
 
-    private func snapshot(from database: T3Database, focusLimit: Int) throws -> Snapshot {
+    func snapshot(from database: T3Database, focusLimit: Int) throws -> Snapshot {
         let threads = try database.threads()
         let turns = try database.latestTurns()
         let approvals = try database.pendingApprovalCount()
 
-        var runs = threads.map { thread -> AgentRun in
+        var runs = try threads.map { thread -> AgentRun in
             var run = thread
             if let turn = turns[run.id] {
                 run.turnStartedAt = turn.startedAt ?? turn.requestedAt
                 run.turnState = turn.state
             }
             if let count = approvals[run.id] { run.pendingApprovals = count }
+            if run.status != .stopped && run.status != .interrupted && !run.status.isFaulted {
+                run.hasBackgroundWork = try database.hasBackgroundWork(threadID: run.id)
+            }
             return run
         }
         runs = Self.focusOrder(runs)

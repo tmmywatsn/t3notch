@@ -26,8 +26,12 @@ final class T3Store: ObservableObject {
     private let finishedRetention: TimeInterval = 30 * 60
     private let focusLimit = 6
 
-    private var previousStatus: [String: SessionStatus] = [:]
+    private var previouslyActive: Set<String> = []
     private var runningSince: [String: Date] = [:]
+    private var runsWithBackgroundWork: Set<String> = []
+    private var settlingSince: [String: Date] = [:]
+    private let handoffGrace: TimeInterval = 3
+    private var latestSnapshot: T3Reader.Snapshot?
     /// Keyed by thread so both can be pruned when a thread goes away.
     private var announcedQuestions: [String: Set<String>] = [:]
     private var announcedApprovals: [String: String] = [:]
@@ -44,11 +48,17 @@ final class T3Store: ObservableObject {
 
     func start() {
         pollTimer = schedule(every: 0.25) { [weak self] in self?.pollForChanges() }
-        tickTimer = schedule(every: 1) { [weak self] in
-            self?.now = Date()
-            self?.expireFinished()
-        }
+        tickTimer = schedule(every: 1) { [weak self] in self?.tick() }
         pollForChanges(force: true)
+    }
+
+    /// Settle even when the database stops changing after the final event.
+    func tick(at time: Date = Date()) {
+        now = time
+        expireFinished()
+        if !refreshInFlight, !settlingSince.isEmpty, let snapshot = latestSnapshot {
+            apply(snapshot, at: time)
+        }
     }
 
     func stop() {
@@ -126,6 +136,8 @@ final class T3Store: ObservableObject {
                 case let .success(snapshot):
                     self.apply(snapshot)
                 case let .failure(message):
+                    self.latestSnapshot = nil
+                    self.settlingSince.removeAll()
                     self.connected = false
                     self.statusMessage = message
                     self.runs = []
@@ -134,7 +146,8 @@ final class T3Store: ObservableObject {
         }
     }
 
-    private func apply(_ snapshot: T3Reader.Snapshot) {
+    func apply(_ snapshot: T3Reader.Snapshot, at time: Date = Date()) {
+        latestSnapshot = snapshot
         connected = true
         statusMessage = nil
 
@@ -145,11 +158,28 @@ final class T3Store: ObservableObject {
 
         // Ordered, not a dictionary: two runs finishing in the same refresh
         // must announce in a fixed order, not whatever the hash gives.
-        detectTransitions(runs: snapshot.runs, turns: snapshot.turns)
+        let visibleRuns = bridgeHandoffs(in: snapshot.runs, at: time)
+        detectTransitions(runs: visibleRuns, turns: snapshot.turns, at: time)
         detectAttention(runs: snapshot.runs, announcing: !firstPass)
         forget(threadsMissingFrom: snapshot.runs)
 
-        runs = snapshot.runs.filter { Self.isWorthShowing($0) }
+        runs = visibleRuns.filter { Self.isWorthShowing($0) }
+    }
+
+    private func bridgeHandoffs(in runs: [AgentRun], at time: Date) -> [AgentRun] {
+        runs.map { run in
+            var run = run
+            let failed = run.phase == .failed || run.lastError?.isEmpty == false
+            if run.hasOngoingWork || run.needsAttention || failed
+                || run.isStoppedOrFailed {
+                settlingSince[run.id] = nil
+            } else if previouslyActive.contains(run.id) {
+                let since = settlingSince[run.id] ?? time
+                settlingSince[run.id] = since
+                run.isInHandoff = time.timeIntervalSince(since) < handoffGrace
+            }
+            return run
+        }
     }
 
     private static func isWorthShowing(_ run: AgentRun) -> Bool {
@@ -161,40 +191,41 @@ final class T3Store: ObservableObject {
     /// grows for the lifetime of the process.
     private func forget(threadsMissingFrom runs: [AgentRun]) {
         let live = Set(runs.map(\.id))
-        previousStatus = previousStatus.filter { live.contains($0.key) }
+        previouslyActive.formIntersection(live)
         runningSince = runningSince.filter { live.contains($0.key) }
+        runsWithBackgroundWork.formIntersection(live)
+        settlingSince = settlingSince.filter { live.contains($0.key) }
         announcedQuestions = announcedQuestions.filter { live.contains($0.key) }
         announcedApprovals = announcedApprovals.filter { live.contains($0.key) }
     }
 
     // MARK: - Event detection
 
-    private func detectTransitions(runs: [AgentRun], turns: [String: TurnRecord]) {
+    private func detectTransitions(runs: [AgentRun], turns: [String: TurnRecord], at time: Date) {
         for run in runs {
             let id = run.id
-            let previous = previousStatus[id]
-            previousStatus[id] = run.status
-
-            if run.status.isBusy {
-                if previous?.isBusy != true {
-                    runningSince[id] = run.turnStartedAt ?? Date()
+            if !run.isStoppedOrFailed && (run.hasOngoingWork || run.isInHandoff || run.needsAttention) {
+                if run.hasBackgroundWork { runsWithBackgroundWork.insert(id) }
+                if previouslyActive.insert(id).inserted {
+                    runningSince[id] = run.turnStartedAt ?? time
                 }
                 continue
             }
 
-            // running -> anything else is a finished run.
-            guard previous?.isBusy == true else { continue }
+            guard previouslyActive.remove(id) != nil else { continue }
+            let settledAt = settlingSince.removeValue(forKey: id) ?? time
             let startedAt = runningSince.removeValue(forKey: id)
+            let hadBackgroundWork = runsWithBackgroundWork.remove(id) != nil
 
             // You pressed stop, so you already know. Nothing to announce.
-            if run.status == .interrupted { continue }
+            if run.status == .interrupted || run.turnState == "interrupted" { continue }
 
             let turn = turns[id]
-            let duration = turn.flatMap { record -> TimeInterval? in
-                guard let start = record.startedAt ?? record.requestedAt,
-                      let end = record.completedAt else { return nil }
-                return end.timeIntervalSince(start)
-            } ?? startedAt.map { Date().timeIntervalSince($0) }
+            // Preserve provider timing for ordinary short turns, even if a poll
+            // was delayed. Background work can continue past that timestamp.
+            let singleTurn = !hadBackgroundWork && startedAt == (turn?.startedAt ?? turn?.requestedAt)
+            let endedAt = singleTurn ? (turn?.completedAt ?? settledAt) : settledAt
+            let duration = startedAt.map { max(0, endedAt.timeIntervalSince($0)) }
 
             if let duration, duration < minimumAnnouncedRun { continue }
 
@@ -205,7 +236,7 @@ final class T3Store: ObservableObject {
                 title: run.title,
                 projectTitle: run.projectTitle,
                 provider: run.provider,
-                finishedAt: turn?.completedAt ?? Date(),
+                finishedAt: endedAt,
                 duration: duration,
                 additions: turn?.additions ?? 0,
                 deletions: turn?.deletions ?? 0,
