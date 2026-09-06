@@ -1,0 +1,62 @@
+name: Release
+
+# Cut a release by bumping VERSION on main and pushing a matching tag:
+#
+#   echo 1.1.0 > VERSION && git commit -am "Release 1.1.0"   # via a PR
+#   git tag v1.1.0 && git push origin v1.1.0
+#
+# Releases are source-only. Builds are ad-hoc signed, so an attached .app would
+# arrive quarantined on every machine that downloaded it; the tag is what the
+# in-app update check reads, and update.sh is what installs it.
+on:
+  push:
+    tags: ["v[0-9]+.[0-9]+.[0-9]+"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Publish
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check the tag matches VERSION
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          FILE="$(tr -d ' \t\n' < VERSION)"
+          if [ "$TAG" != "$FILE" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match VERSION ($FILE)."
+            echo "Bump VERSION on main before tagging."
+            exit 1
+          fi
+          echo "Releasing $FILE"
+
+      - name: Test
+        run: ./Scripts/test.sh
+
+      - name: Build
+        run: ./Scripts/build-app.sh
+
+      - name: Check the bundle carries the released version
+        run: |
+          APP="build/T3 Notch.app"
+          BUILT="$(plutil -extract CFBundleShortVersionString raw "$APP/Contents/Info.plist")"
+          test "$BUILT" = "${GITHUB_REF_NAME#v}"
+          codesign --verify --verbose "$APP"
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Notes run from the previous tag; the first release has none, and
+          # passing an empty --notes-start-tag is an error rather than a no-op.
+          PREVIOUS="$(git tag --list 'v*' --sort=-v:refname | sed -n '2p')"
+          ARGS=(--title "$GITHUB_REF_NAME" --generate-notes --verify-tag)
+          if [ -n "$PREVIOUS" ]; then
+            ARGS+=(--notes-start-tag "$PREVIOUS")
+          fi
+          gh release create "$GITHUB_REF_NAME" "${ARGS[@]}"

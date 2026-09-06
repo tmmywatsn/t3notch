@@ -24,6 +24,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controller.present()
         notifier.requestSystemAuthorization()
         store.start()
+        UpdateChecker.shared.start()
         installStatusItem()
         // Explains why the signature-dependent settings are or aren't showing.
         Debug.log("signed identity=\(CodeSignature.isIdentified) loginItem=\(SMAppService.mainApp.status.rawValue)")
@@ -37,6 +38,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         store.stop()
+        UpdateChecker.shared.stop()
     }
 
     // MARK: - Menu bar item

@@ -11,8 +11,24 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BUILD="$ROOT/build"
 APP="$BUILD/T3 Notch.app"
 BUNDLE_ID="com.tmmywatsn.t3notch"
-VERSION="1.0.0"
 DEPLOYMENT_TARGET="14.0"
+
+# The VERSION file is the one source of truth, so a source tarball with no git
+# history builds a correctly stamped app. release.yml checks that the tag being
+# released matches it.
+VERSION="$(tr -d ' \t\n' < "$ROOT/VERSION")"
+
+# A build that is not exactly on its release tag is marked as such, so "1.0.0"
+# in the settings panel always means the released 1.0.0. Display only: the
+# CFBundle keys stay plain dotted numbers, which is all macOS accepts.
+BUILD_ID="$VERSION"
+if git -C "$ROOT" rev-parse --git-dir >/dev/null 2>&1; then
+  if ! git -C "$ROOT" describe --tags --exact-match "v$VERSION" >/dev/null 2>&1 ||
+     [ -n "$(git -C "$ROOT" status --porcelain 2>/dev/null)" ] ||
+     [ "$(git -C "$ROOT" rev-parse HEAD 2>/dev/null)" != "$(git -C "$ROOT" rev-parse "v$VERSION^{commit}" 2>/dev/null)" ]; then
+    BUILD_ID="$VERSION+$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || echo local)"
+  fi
+fi
 
 cd "$ROOT"
 mkdir -p "$BUILD"
@@ -70,6 +86,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>$VERSION</string>
   <key>CFBundleVersion</key><string>$VERSION</string>
+  <key>T3NotchBuild</key><string>$BUILD_ID</string>
   <key>LSMinimumSystemVersion</key><string>$DEPLOYMENT_TARGET</string>
   <key>LSUIElement</key><true/>
   <key>NSHighResolutionCapable</key><true/>
@@ -84,4 +101,4 @@ printf 'APPL????' > "$APP/Contents/PkgInfo"
 codesign --force --sign - "$APP" >/dev/null 2>&1 ||
   echo "warning: ad-hoc codesign failed; the app still runs"
 
-echo "==> built $APP"
+echo "==> built $APP ($BUILD_ID)"

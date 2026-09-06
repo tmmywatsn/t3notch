@@ -65,6 +65,7 @@ struct NotchRootView: View {
                 store: store,
                 controller: controller,
                 settings: .shared,
+                updates: .shared,
                 metrics: controller.metrics,
                 width: controller.expandedWidth
             )

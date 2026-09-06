@@ -13,6 +13,7 @@ struct ExpandedContent: View {
     @ObservedObject var store: T3Store
     @ObservedObject var controller: NotchController
     @ObservedObject var settings: Settings
+    @ObservedObject var updates: UpdateChecker
     let metrics: NotchMetrics
     let width: CGFloat
 
@@ -20,7 +21,7 @@ struct ExpandedContent: View {
         VStack(spacing: 0) {
             headerRow
             if controller.showingSettings {
-                SettingsList(settings: settings)
+                SettingsList(settings: settings, updates: updates)
                     .padding(.horizontal, 14)
                     .padding(.top, 8)
             } else {
@@ -159,6 +160,16 @@ struct ExpandedContent: View {
                     // lines up with the column of switches above it while
                     // staying comfortable to click.
                     .frame(width: 22, height: 20, alignment: .trailing)
+                    .overlay(alignment: .topTrailing) {
+                        // The only hint an update exists without opening
+                        // settings, so it sits on the control that leads there.
+                        if updates.available != nil && !controller.showingSettings {
+                            Circle()
+                                .fill(Color.accentColor)
+                                .frame(width: 4, height: 4)
+                                .offset(x: 1, y: 3)
+                        }
+                    }
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -443,6 +454,7 @@ private struct FinishedRow: View {
 
 private struct SettingsList: View {
     @ObservedObject var settings: Settings
+    @ObservedObject var updates: UpdateChecker
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
@@ -470,7 +482,55 @@ private struct SettingsList: View {
                 )
                 LoginItemRow()
             }
+            Divider()
+                .overlay(Color.white.opacity(0.08))
+                .padding(.vertical, 4)
+            UpdateRow(settings: settings, updates: updates)
         }
+    }
+}
+
+/// The version, and the one place the app is allowed to reach the network.
+private struct UpdateRow: View {
+    @ObservedObject var settings: Settings
+    @ObservedObject var updates: UpdateChecker
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            SettingRow(title: "Check for updates", detail: detail, isOn: $settings.checkForUpdates)
+            if let release = updates.available, settings.checkForUpdates {
+                Button {
+                    NSWorkspace.shared.open(release.page)
+                } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: "arrow.down.circle.fill")
+                        Text("What\u{2019}s new in \(release.version.description)")
+                        Image(systemName: "arrow.up.right")
+                            .font(.system(size: 8, weight: .semibold))
+                    }
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(Color.accentColor)
+                    .padding(.vertical, 5)
+                    .padding(.horizontal, 8)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .fill(Color.accentColor.opacity(0.12))
+                    )
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Open the release notes on GitHub")
+                Text("Update with ./Scripts/update.sh in your clone.")
+                    .font(.system(size: 9))
+                    .foregroundStyle(.white.opacity(0.4))
+            }
+        }
+    }
+
+    private var detail: String {
+        guard let release = updates.available else { return "Version \(AppVersion.currentBuild)" }
+        return "\(AppVersion.currentBuild) \u{00B7} \(release.version) is available"
     }
 }
 

@@ -89,6 +89,92 @@ run("Relative times") {
     expect(now.addingTimeInterval(-7200).ago(from: now), "2h ago", "hours")
 }
 
+run("Versions compare as numbers, not text") {
+    expect(AppVersion("1.10.0")! > AppVersion("1.9.0")!, true, "1.10.0 beats 1.9.0")
+    expect(AppVersion("2.0.0")! > AppVersion("1.99.99")!, true, "a major bump wins")
+    expect(AppVersion("1.2")! == AppVersion("1.2.0")!, true, "a missing patch reads as zero")
+    expect(AppVersion("1.2.0")! > AppVersion("1.2.0")!, false, "the same version is not newer")
+    expect(AppVersion("v1.2.0")!.description, "1.2.0", "a leading v is dropped")
+    expect(AppVersion("1.2.0-beta.1")!.description, "1.2.0", "a pre-release suffix is ignored")
+    expect(AppVersion("") == nil, true, "empty is not a version")
+    expect(AppVersion("nightly") == nil, true, "words are not a version")
+    expect(AppVersion("1.2.x") == nil, true, "a non-numeric component is rejected")
+    expect(AppVersion("-1.0") == nil, true, "a negative component is rejected")
+}
+
+run("Update responses are only trusted when they should be") {
+    let current = AppVersion("1.0.0")!
+    let url = URL(string: "https://api.github.com")!
+    func reply(_ status: Int, _ json: String) -> (Data?, URLResponse?) {
+        (json.data(using: .utf8),
+         HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: nil))
+    }
+
+    let (newer, ok) = reply(200, #"{"tag_name":"v1.1.0","html_url":"https://example.com/r"}"#)
+    expect(
+        UpdateChecker.parse(data: newer, response: ok, error: nil, current: current)?.version.description ?? "none",
+        "1.1.0",
+        "a newer tag is offered"
+    )
+
+    let (same, ok2) = reply(200, #"{"tag_name":"v1.0.0","html_url":"https://example.com/r"}"#)
+    expect(
+        UpdateChecker.parse(data: same, response: ok2, error: nil, current: current) == nil,
+        true,
+        "the running version is not an update"
+    )
+
+    let (older, ok3) = reply(200, #"{"tag_name":"v0.9.0","html_url":"https://example.com/r"}"#)
+    expect(
+        UpdateChecker.parse(data: older, response: ok3, error: nil, current: current) == nil,
+        true,
+        "an older tag is ignored"
+    )
+
+    let (draft, ok4) = reply(200, #"{"tag_name":"v2.0.0","draft":true}"#)
+    expect(
+        UpdateChecker.parse(data: draft, response: ok4, error: nil, current: current) == nil,
+        true,
+        "a draft is ignored"
+    )
+
+    let (pre, ok5) = reply(200, #"{"tag_name":"v2.0.0","prerelease":true}"#)
+    expect(
+        UpdateChecker.parse(data: pre, response: ok5, error: nil, current: current) == nil,
+        true,
+        "a pre-release is ignored"
+    )
+
+    let (rateLimited, tooMany) = reply(403, #"{"tag_name":"v9.9.9"}"#)
+    expect(
+        UpdateChecker.parse(data: rateLimited, response: tooMany, error: nil, current: current) == nil,
+        true,
+        "a non-200 body is not read"
+    )
+
+    let (garbage, ok6) = reply(200, "not json")
+    expect(
+        UpdateChecker.parse(data: garbage, response: ok6, error: nil, current: current) == nil,
+        true,
+        "malformed JSON is survivable"
+    )
+
+    let (fine, ok7) = reply(200, #"{"tag_name":"v1.1.0"}"#)
+    expect(
+        UpdateChecker.parse(data: fine, response: ok7,
+                            error: URLError(.notConnectedToInternet), current: current) == nil,
+        true,
+        "a transport error wins over the body"
+    )
+
+    let (noURL, ok8) = reply(200, #"{"tag_name":"v1.1.0"}"#)
+    expect(
+        UpdateChecker.parse(data: noURL, response: ok8, error: nil, current: current)?.page.absoluteString ?? "none",
+        "https://github.com/tmmywatsn/t3notch/releases/latest",
+        "a missing page URL falls back to the releases page"
+    )
+}
+
 print("")
 if failures == 0 {
     print("all tests passed")
