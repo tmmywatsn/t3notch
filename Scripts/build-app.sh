@@ -17,6 +17,13 @@ DEPLOYMENT_TARGET="14.0"
 # history builds a correctly stamped app. release.yml checks that the tag being
 # released matches it.
 VERSION="$(tr -d ' \t\n' < "$ROOT/VERSION")"
+# A version macOS will not accept, or that the update check cannot parse, is
+# worth failing on here rather than shipping an app that quietly stops
+# noticing new releases.
+if ! printf '%s' "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+  echo "error: VERSION must be a plain x.y.z number, got '$VERSION'" >&2
+  exit 1
+fi
 
 # A build that is not exactly on its release tag is marked as such, so "1.0.0"
 # in the settings panel always means the released 1.0.0. Display only: the
