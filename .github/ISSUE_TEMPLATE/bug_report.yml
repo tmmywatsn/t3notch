@@ -1,0 +1,41 @@
+name: Bug report
+description: Report incorrect behavior or a build problem in T3 Notch.
+title: "[Bug]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Search existing issues first. Report security vulnerabilities through the Security tab.
+        Redact private chats, paths and credentials. Do not attach your T3 Code database.
+  - type: input
+    id: notch-version
+    attributes:
+      label: T3 Notch version or commit
+      placeholder: "1.0.1 or a git commit"
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: macOS, Mac model and T3 Code version
+      description: Include whether your display has a physical notch.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Include the smallest repeatable example you can find.
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Expected and actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Sanitized screenshots or logs
+      description: For build failures, include the failing command and relevant error output.

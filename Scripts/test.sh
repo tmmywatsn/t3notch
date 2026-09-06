@@ -1,5 +1,5 @@
 #!/bin/bash
-# Runs the pure-logic tests. Same compiler invocation as build-app.sh, with the
+# Runs the logic and SQLite/store regression tests. Same compiler invocation as build-app.sh, with the
 # app's entry point swapped for the test harness.
 set -euo pipefail
 

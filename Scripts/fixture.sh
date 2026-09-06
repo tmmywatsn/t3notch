@@ -51,6 +51,8 @@ CREATE TABLE projection_thread_activities (activity_id TEXT PRIMARY KEY, thread_
   payload_json TEXT NOT NULL, created_at TEXT NOT NULL, sequence INTEGER);
 CREATE TABLE projection_pending_approvals (request_id TEXT PRIMARY KEY, thread_id TEXT NOT NULL,
   turn_id TEXT, status TEXT NOT NULL, decision TEXT, created_at TEXT NOT NULL, resolved_at TEXT);
+CREATE TABLE orchestration_events (sequence INTEGER PRIMARY KEY, aggregate_kind TEXT NOT NULL,
+  stream_id TEXT NOT NULL, event_type TEXT NOT NULL, payload_json TEXT NOT NULL, occurred_at TEXT NOT NULL);
 SQL
   sqlite3 "$DB" <<SQL
 INSERT INTO projection_projects (project_id,title,workspace_root,scripts_json,created_at,updated_at)
